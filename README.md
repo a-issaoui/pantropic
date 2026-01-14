@@ -1,5 +1,5 @@
 <H1 align="center">
-Antropic
+Pantropic
 </H1>
 <div align="center">
 
