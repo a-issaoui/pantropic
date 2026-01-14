@@ -1,0 +1,90 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# === Virtual Environments ===
+.env
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# === Testing ===
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.log
+
+# === Type Checking ===
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+
+# === Linting ===
+.ruff_cache/
+
+# === Jupyter ===
+.ipynb_checkpoints/
+*.ipynb
+
+# === Project Specific ===
+# Model files (large binary files)
+models/
+*.gguf
+
+# Session storage
+sessions/
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# Local config overrides
+config.local.yaml
+.env.local
+
+# Scanner output (regenerated)
+models_new.json
+
+# === Keep These Files ===
+# models.json is the scanned model registry
+!models.json

@@ -1,0 +1,234 @@
+"""Pantropic - FastAPI Application Factory.
+
+Creates and configures the FastAPI application.
+"""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
+
+from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
+
+from pantropic.observability.logging import get_logger, request_id_var
+
+if TYPE_CHECKING:
+    from pantropic.core.container import Container
+
+log = get_logger("api")
+
+
+def create_app(container: Container) -> FastAPI:
+    """Create FastAPI application.
+
+    Args:
+        container: Dependency injection container
+
+    Returns:
+        Configured FastAPI application
+    """
+    app = FastAPI(
+        title="Pantropic",
+        description="Intelligent Local LLM Server",
+        version="1.0.0",
+        docs_url="/docs",
+        redoc_url="/redoc",
+    )
+
+    # Store container in app state (state is a Starlette State object)
+    app.state.container = container  # type: ignore[attr-defined]
+
+    # Add middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=container.config.api.cors_origins or ["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+    # Request ID middleware
+    @app.middleware("http")
+    async def add_request_id(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        request_id = str(uuid.uuid4())[:8]
+        request_id_var.set(request_id)
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+    # Include routers
+    from pantropic.api.routes import chat, embeddings, health, models, sessions
+
+    app.include_router(chat.router, prefix="/v1", tags=["Chat"])
+    app.include_router(embeddings.router, prefix="/v1", tags=["Embeddings"])
+    app.include_router(models.router, prefix="/v1", tags=["Models"])
+    app.include_router(sessions.router, prefix="/v1/sessions", tags=["Sessions"])
+    app.include_router(health.router, tags=["Health"])
+
+    # Root endpoint
+    @app.get("/")
+    async def root():
+        return {
+            "service": "Pantropic",
+            "version": "1.0.0",
+            "status": "running",
+            "docs": "/docs",
+        }
+
+    # Exception handlers - OpenAI compatible error format
+    # Format: {"error": {"message": str, "type": str, "param": str|null, "code": str|null}}
+    from pantropic.core.exceptions import (
+        APIError,
+        PantropicError,
+        ModelNotFoundError,
+        ModelLoadError,
+        ContextOverflowError,
+        InsufficientVRAMError,
+        InferenceError,
+        ValidationError,
+    )
+
+    @app.exception_handler(ModelNotFoundError)
+    async def model_not_found_handler(request: Request, exc: ModelNotFoundError):
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": {
+                    "message": exc.message,
+                    "type": "invalid_request_error",
+                    "param": "model",
+                    "code": "model_not_found",
+                }
+            }
+        )
+
+    @app.exception_handler(ContextOverflowError)
+    async def context_overflow_handler(request: Request, exc: ContextOverflowError):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "message": exc.message,
+                    "type": "invalid_request_error",
+                    "param": "messages",
+                    "code": "context_length_exceeded",
+                }
+            }
+        )
+
+    @app.exception_handler(InsufficientVRAMError)
+    async def insufficient_vram_handler(request: Request, exc: InsufficientVRAMError):
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": {
+                    "message": exc.message,
+                    "type": "server_error",
+                    "param": None,
+                    "code": "insufficient_resources",
+                }
+            }
+        )
+
+    @app.exception_handler(ModelLoadError)
+    async def model_load_handler(request: Request, exc: ModelLoadError):
+        log.error(f"Model load error: {exc.message}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": {
+                    "message": exc.message,
+                    "type": "server_error",
+                    "param": "model",
+                    "code": "model_load_failed",
+                }
+            }
+        )
+
+    @app.exception_handler(ValidationError)
+    async def validation_error_handler(request: Request, exc: ValidationError):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "message": exc.message,
+                    "type": "invalid_request_error",
+                    "param": None,
+                    "code": "invalid_request",
+                }
+            }
+        )
+
+    @app.exception_handler(InferenceError)
+    async def inference_error_handler(request: Request, exc: InferenceError):
+        log.error(f"Inference error: {exc.message}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "message": exc.message,
+                    "type": "server_error",
+                    "param": None,
+                    "code": exc.code.lower() if exc.code else "inference_error",
+                }
+            }
+        )
+
+    @app.exception_handler(APIError)
+    async def api_error_handler(request: Request, exc: APIError):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": {
+                    "message": exc.message,
+                    "type": "api_error",
+                    "param": None,
+                    "code": exc.code.lower() if exc.code else None,
+                }
+            }
+        )
+
+    @app.exception_handler(PantropicError)
+    async def pantropic_error_handler(request: Request, exc: PantropicError):
+        log.error(f"Pantropic error: {exc.message}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "message": exc.message,
+                    "type": "server_error",
+                    "param": None,
+                    "code": exc.code.lower() if exc.code else "pantropic_error",
+                }
+            }
+        )
+
+    @app.exception_handler(Exception)
+    async def general_error_handler(request: Request, exc: Exception):
+        log.exception(f"Unhandled error: {exc}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "message": "An unexpected error occurred",
+                    "type": "server_error",
+                    "param": None,
+                    "code": "internal_error",
+                }
+            }
+        )
+
+    return app
+
+
+def get_container(request: Request) -> Container:
+    """Get container from request state (dependency injection)."""
+    return request.app.state.container  # type: ignore[attr-defined]

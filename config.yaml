@@ -1,0 +1,23 @@
+# Pantropic Configuration
+# Simple local LLM server like Ollama
+
+# Server
+host: 0.0.0.0
+port: 8090
+log_level: info
+
+# Models
+models_dir: models
+default_context: 8192
+max_context: 131072
+# preload_model: SmolLM-1.7B-Instruct-Q4_K_M.gguf  # Uncomment to preload
+auto_unload_timeout: 300  # 5 minutes
+
+# Hardware
+flash_attention: true
+use_mmap: true
+cpu_threads: 0  # 0 = auto-detect
+
+# Sessions
+max_sessions: 100
+session_timeout: 3600  # 1 hour

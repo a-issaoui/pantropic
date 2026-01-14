@@ -1,0 +1,21 @@
+# Pantropic - Complete Requirements
+# Install with: pip install -r requirements.txt
+# For GPU support: CMAKE_ARGS="-DGGML_CUDA=on" pip install -r requirements.txt
+
+# Core Dependencies
+llama-cpp-python>=0.3.16,<0.4.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.0.0
+pyyaml>=6.0
+jinja2>=3.1.0
+starlette>=0.40.0
+aiohttp>=3.9.0
+
+# Development Dependencies (optional)
+# pytest>=8.0.0
+# pytest-cov>=6.0.0
+# pytest-asyncio>=0.24.0
+# ruff>=0.8.0
+# mypy>=1.13.0
+# httpx>=0.27.0

@@ -1,0 +1,4 @@
+"""Pantropic - Intelligent Local LLM Server."""
+
+__version__ = "1.0.0"
+__author__ = "Pantropic Team"
