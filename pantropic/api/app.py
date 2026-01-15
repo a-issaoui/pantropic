@@ -65,12 +65,17 @@ def create_app(container: Container) -> FastAPI:
         return response
 
     # Include routers
-    from pantropic.api.routes import chat, embeddings, health, models, sessions
+    from pantropic.api.routes import chat, embeddings, health, messages, models, sessions
 
-    app.include_router(chat.router, prefix="/v1", tags=["Chat"])
+    # OpenAI-compatible API
+    app.include_router(chat.router, prefix="/v1", tags=["Chat (OpenAI)"])
     app.include_router(embeddings.router, prefix="/v1", tags=["Embeddings"])
     app.include_router(models.router, prefix="/v1", tags=["Models"])
     app.include_router(sessions.router, prefix="/v1/sessions", tags=["Sessions"])
+
+    # Anthropic-compatible API
+    app.include_router(messages.router, prefix="/v1", tags=["Messages (Anthropic)"])
+
     app.include_router(health.router, tags=["Health"])
 
     # Root endpoint
@@ -96,135 +101,77 @@ def create_app(container: Container) -> FastAPI:
         ValidationError,
     )
 
+    def _is_anthropic_request(request: Request) -> bool:
+        """Check if request is for Anthropic API endpoint."""
+        return "/messages" in request.url.path
+
+    def _format_error(request: Request, status_code: int, message: str, error_type: str, param: str | None = None, code: str | None = None) -> JSONResponse:
+        """Format error based on API type (OpenAI vs Anthropic)."""
+        if _is_anthropic_request(request):
+            # Anthropic error format
+            return JSONResponse(
+                status_code=status_code,
+                content={
+                    "type": "error",
+                    "error": {
+                        "type": error_type,
+                        "message": message,
+                    }
+                }
+            )
+        else:
+            # OpenAI error format
+            return JSONResponse(
+                status_code=status_code,
+                content={
+                    "error": {
+                        "message": message,
+                        "type": error_type,
+                        "param": param,
+                        "code": code or error_type,
+                    }
+                }
+            )
+
     @app.exception_handler(ModelNotFoundError)
     async def model_not_found_handler(request: Request, exc: ModelNotFoundError):
-        return JSONResponse(
-            status_code=404,
-            content={
-                "error": {
-                    "message": exc.message,
-                    "type": "invalid_request_error",
-                    "param": "model",
-                    "code": "model_not_found",
-                }
-            }
-        )
+        return _format_error(request, 404, exc.message, "invalid_request_error", "model", "model_not_found")
 
     @app.exception_handler(ContextOverflowError)
     async def context_overflow_handler(request: Request, exc: ContextOverflowError):
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": {
-                    "message": exc.message,
-                    "type": "invalid_request_error",
-                    "param": "messages",
-                    "code": "context_length_exceeded",
-                }
-            }
-        )
+        return _format_error(request, 400, exc.message, "invalid_request_error", "messages")
 
     @app.exception_handler(InsufficientVRAMError)
     async def insufficient_vram_handler(request: Request, exc: InsufficientVRAMError):
-        return JSONResponse(
-            status_code=503,
-            content={
-                "error": {
-                    "message": exc.message,
-                    "type": "server_error",
-                    "param": None,
-                    "code": "insufficient_resources",
-                }
-            }
-        )
+        return _format_error(request, 503, exc.message, "overloaded_error")
 
     @app.exception_handler(ModelLoadError)
     async def model_load_handler(request: Request, exc: ModelLoadError):
         log.error(f"Model load error: {exc.message}")
-        return JSONResponse(
-            status_code=503,
-            content={
-                "error": {
-                    "message": exc.message,
-                    "type": "server_error",
-                    "param": "model",
-                    "code": "model_load_failed",
-                }
-            }
-        )
+        return _format_error(request, 503, exc.message, "overloaded_error", "model")
 
     @app.exception_handler(ValidationError)
     async def validation_error_handler(request: Request, exc: ValidationError):
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": {
-                    "message": exc.message,
-                    "type": "invalid_request_error",
-                    "param": None,
-                    "code": "invalid_request",
-                }
-            }
-        )
+        return _format_error(request, 400, exc.message, "invalid_request_error")
 
     @app.exception_handler(InferenceError)
     async def inference_error_handler(request: Request, exc: InferenceError):
         log.error(f"Inference error: {exc.message}")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": {
-                    "message": exc.message,
-                    "type": "server_error",
-                    "param": None,
-                    "code": exc.code.lower() if exc.code else "inference_error",
-                }
-            }
-        )
+        return _format_error(request, 500, exc.message, "api_error")
 
     @app.exception_handler(APIError)
     async def api_error_handler(request: Request, exc: APIError):
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={
-                "error": {
-                    "message": exc.message,
-                    "type": "api_error",
-                    "param": None,
-                    "code": exc.code.lower() if exc.code else None,
-                }
-            }
-        )
+        return _format_error(request, exc.status_code, exc.message, "api_error")
 
     @app.exception_handler(PantropicError)
     async def pantropic_error_handler(request: Request, exc: PantropicError):
         log.error(f"Pantropic error: {exc.message}")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": {
-                    "message": exc.message,
-                    "type": "server_error",
-                    "param": None,
-                    "code": exc.code.lower() if exc.code else "pantropic_error",
-                }
-            }
-        )
+        return _format_error(request, 500, exc.message, "api_error")
 
     @app.exception_handler(Exception)
     async def general_error_handler(request: Request, exc: Exception):
         log.exception(f"Unhandled error: {exc}")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": {
-                    "message": "An unexpected error occurred",
-                    "type": "server_error",
-                    "param": None,
-                    "code": "internal_error",
-                }
-            }
-        )
+        return _format_error(request, 500, "An unexpected error occurred", "api_error")
 
     return app
 

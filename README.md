@@ -175,18 +175,20 @@ Use the included `pantropic.sh` script to manage the server:
 
 ## 📚 API Reference
 
+Pantropic supports **both OpenAI and Anthropic API formats**.
+
 ### Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/v1/chat/completions` | POST | Chat completion (OpenAI compatible) |
-| `/v1/embeddings` | POST | Text embeddings |
-| `/v1/models` | GET | List available models |
-| `/v1/sessions` | GET/POST | Session management |
-| `/v1/sessions/{id}` | GET/DELETE | Get/delete session |
-| `/v1/sessions/{id}/messages` | POST | Add message to session |
-| `/health` | GET | Health check |
-| `/metrics` | GET | Server metrics |
+| Endpoint | Method | API | Description |
+|----------|--------|-----|-------------|
+| `/v1/chat/completions` | POST | OpenAI | Chat completion |
+| `/v1/messages` | POST | Anthropic | Messages (Claude-compatible) |
+| `/v1/embeddings` | POST | OpenAI | Text embeddings |
+| `/v1/models` | GET | Both | List available models |
+| `/v1/sessions` | GET/POST | Custom | Session management |
+| `/v1/sessions/{id}` | GET/DELETE | Custom | Get/delete session |
+| `/health` | GET | - | Health check |
+| `/metrics` | GET | - | Server metrics |
 
 ### Chat Completions
 
@@ -224,6 +226,82 @@ curl -X POST http://localhost:8090/v1/chat/completions \
       }
     }]
   }'
+```
+
+### Anthropic Messages API
+
+```bash
+curl -X POST http://localhost:8090/v1/messages \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen2.5-3b-instruct-q4_k_m.gguf",
+    "max_tokens": 100,
+    "system": "You are a helpful assistant.",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+**Response (Anthropic format):**
+```json
+{
+  "id": "msg_abc123",
+  "type": "message",
+  "role": "assistant",
+  "model": "Qwen2.5-3b-instruct-q4_k_m.gguf",
+  "content": [{"type": "text", "text": "Hello! How can I help?"}],
+  "stop_reason": "end_turn",
+  "usage": {"input_tokens": 10, "output_tokens": 8}
+}
+```
+
+### Anthropic Tool Calling
+
+```bash
+curl -X POST http://localhost:8090/v1/messages \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen2.5-3b-instruct-q4_k_m.gguf",
+    "max_tokens": 200,
+    "messages": [{"role": "user", "content": "Weather in Tokyo?"}],
+    "tools": [{
+      "name": "get_weather",
+      "description": "Get weather for a city",
+      "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}}
+    }]
+  }'
+```
+
+**Response:**
+```json
+{
+  "content": [{"type": "tool_use", "id": "call_123", "name": "get_weather", "input": {"city": "Tokyo"}}],
+  "stop_reason": "tool_use"
+}
+```
+
+### Anthropic Streaming
+
+```bash
+curl -X POST http://localhost:8090/v1/messages \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen2.5-3b-instruct-q4_k_m.gguf",
+    "max_tokens": 100,
+    "stream": true,
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
+```
+
+**SSE Events:**
+```
+event: message_start
+data: {"type": "message_start", "message": {...}}
+
+event: content_block_delta
+data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hello"}}
+
+event: message_stop
+data: {"type": "message_stop"}
 ```
 
 ### Embeddings
@@ -304,6 +382,9 @@ pytest --cov=pantropic --cov-report=html
 
 # Run API tests (requires running server)
 python examples/test_all_apis.py
+
+# Run Anthropic API compatibility tests
+python examples/test_anthropic_api.py
 
 # Run edge case tests
 python examples/test_edge_cases.py
